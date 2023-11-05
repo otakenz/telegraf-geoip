@@ -47,33 +47,66 @@ func (g *GeoIP) Description() string {
 }
 
 func (g *GeoIP) Apply(metrics ...telegraf.Metric) []telegraf.Metric {
-	for _, point := range metrics {
-		for _, lookup := range g.Lookups {
-			if lookup.Field != "" {
-				if value, ok := point.GetField(lookup.Field); ok {
-					record, err := reader.Lookup(net.ParseIP(value.(string)))
-					if err != nil {
-						g.Log.Errorf("GeoIP lookup error: %v", err)
-						continue
-					}
-					if len(lookup.DestCountry) > 0 {
-						point.AddField(lookup.DestCountry, record.Country.ISOCode)
-					}
-					if len(lookup.DestCity) > 0 {
-						point.AddField(lookup.DestCity, record.City.Names["en"])
-					}
-					if len(lookup.DestLat) > 0 {
-						point.AddField(lookup.DestLat, record.Location.Latitude)
-					}
-					if len(lookup.DestLon) > 0 {
-						point.AddField(lookup.DestLon, record.Location.Longitude)
-					}
+    if len(g.Lookups) == 0 {
+        return metrics
+    }
 
-				}
-			}
-		}
-	}
-	return metrics
+    for _, point := range metrics {
+        ipValue, ok := point.GetField(g.Lookups[0].Field)
+        if !ok {
+            continue
+        }
+
+        ipAddress := net.ParseIP(ipValue.(string))
+        if ipAddress == nil {
+            g.Log.Errorf("Invalid IP address: %v", ipValue)
+            continue
+        }
+
+        for _, lookup := range g.Lookups {
+            if lookup.Field == "" {
+                continue
+            }
+
+            value, ok := point.GetField(lookup.Field)
+            if !ok {
+                continue
+            }
+
+            ipAddress := net.ParseIP(value.(string))
+            if ipAddress == nil {
+                g.Log.Errorf("Invalid IP address: %v", value)
+                continue
+            }
+
+            record, err := reader.Lookup(ipAddress)
+            if err != nil {
+                //g.Log.Errorf("GeoIP lookup error: %v", err)
+                continue
+            }
+
+            if lookup.DestCountry != "" {
+                point.AddField(lookup.DestCountry, record.Country.ISOCode)
+            }
+
+            if lookup.DestCity != "" {
+                cityName, exists := record.City.Names["en"]
+                if exists {
+                    point.AddField(lookup.DestCity, cityName)
+                }
+            }
+
+            if lookup.DestLat != "" {
+                point.AddField(lookup.DestLat, record.Location.Latitude)
+            }
+
+            if lookup.DestLon != "" {
+                point.AddField(lookup.DestLon, record.Location.Longitude)
+            }
+        }
+    }
+
+    return metrics
 }
 
 func (g *GeoIP) Init() error {
@@ -89,7 +122,7 @@ func (g *GeoIP) Init() error {
 func init() {
 	processors.Add("geoip", func() telegraf.Processor {
 		return &GeoIP{
-			DBPath: "/var/lib/GeoIP/GeoLite2-Country.mmdb",
+			DBPath: "/usr/local/share/GeoIP/GeoLite2-City.mmdb",
 		}
 	})
 }
